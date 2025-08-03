@@ -1,0 +1,20 @@
+namespace OptionData;
+
+table OptionChain {
+  expiration: string;
+  spot_price: float;
+  tau_years: float;
+  rfr: [float];
+  calls_strike: [float];
+  calls_bid: [float];
+  calls_ask: [float];
+  puts_strike: [float];
+  puts_bid: [float];
+  puts_ask: [float];
+}
+
+table OptionChainList {
+  chains: [OptionChain];
+}
+
+root_type OptionChainList;
