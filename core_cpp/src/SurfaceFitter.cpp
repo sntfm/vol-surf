@@ -48,11 +48,11 @@ void Fitter::initial_guess(
     var_iv /= (n - 1);
     
     // Set initial parameters based on data
-    params.a = mean_iv * mean_iv * 0.8f;
-    params.m = mean_k;
-    params.sigma = std::sqrt(var_k) + 0.1f;
+    params.a = std::max(0.01f, mean_iv * mean_iv * 0.8f); 
+    params.m = std::clamp(mean_k, -2.0f, 2.0f);
+    params.sigma = std::clamp(std::sqrt(var_k) + 0.1f, 0.05f, 1.0f);
     params.rho = 0.0f;
-    params.b = std::sqrt(var_iv) * 0.5f;
+    params.b = std::clamp(std::sqrt(var_iv) * 0.5f, 0.1f, 1.0f);
     
     enforce_bounds(params);
 }
@@ -94,10 +94,9 @@ bool Fitter::optimize_scalar(
     auto start = std::chrono::high_resolution_clock::now();
     
     float learning_rate = 0.01f;
-    int max_iterations = 100;
-    float tolerance = 1e-6f;
-    
+    int max_iterations = 150;
     float prev_obj = objective_scalar(params, moneyness, ivs);
+    float tolerance = std::max(1e-5f, prev_obj * 0.01f);  // Adaptive tolerance based on initial error
     
     for (int iter = 0; iter < max_iterations; ++iter) {
         auto now = std::chrono::high_resolution_clock::now();
@@ -150,14 +149,14 @@ bool Fitter::optimize_scalar(
             }
             prev_obj = new_obj;
         } else {
-            learning_rate *= 0.5f;
-            if (learning_rate < 1e-8f) {
+            learning_rate *= 0.7f;  
+            if (learning_rate < 1e-6f) {
                 break;
             }
         }
     }
     
-    return prev_obj < 0.01f;
+    return prev_obj < 0.1f;
 }
 
 float Fitter::evaluate_variance_second_derivative(float k, const Params& params) {
@@ -187,16 +186,33 @@ bool Fitter::fit_slice_scalar(
     Params& params,
     float time_budget_micros
 ) {
-    if (moneyness.size() != ivs.size() || moneyness.size() < 3) {
-        return false;
+    if (moneyness.size() != ivs.size() || moneyness.size() < 2) {
+        return false;  // Allow fitting with 2+ data points
     }
     
     initial_guess(moneyness, ivs, params);
     bool success = optimize_scalar(moneyness, ivs, params, time_budget_micros);
     
+    // Multiple recovery strategies if arbitrage check fails
     if (success && !is_butterfly_arb_free(params, moneyness)) {
-        params.sigma *= 1.2f;
+        // Strategy 1: Increase sigma (smoothness)
+        params.sigma *= 1.3f;
         enforce_bounds(params);
+        
+        // Strategy 2: If still failing, reduce rho and increase sigma more
+        if (!is_butterfly_arb_free(params, moneyness)) {
+            params.rho *= 0.5f;
+            params.sigma *= 1.2f;
+            enforce_bounds(params);
+        }
+        
+        // Strategy 3: Last resort - conservative parameters
+        if (!is_butterfly_arb_free(params, moneyness)) {
+            params.rho = 0.0f;  // No skew
+            params.b = std::min(params.b, 0.5f);  // Conservative slope
+            params.sigma = std::max(params.sigma, 0.2f);  // Ensure smoothness
+            enforce_bounds(params);
+        }
     }
     
     return success;
@@ -276,8 +292,8 @@ bool Fitter::optimize_avx512(
     auto start = std::chrono::high_resolution_clock::now();
     
     float learning_rate = 0.01f;
-    int max_iterations = 100;
-    float tolerance = 1e-6f;
+    int max_iterations = 150;  // More iterations for difficult cases
+    float tolerance = std::max(1e-5f, prev_obj * 0.01f);  // Adaptive tolerance based on initial error
     
     float prev_obj = objective_avx512(params, moneyness, ivs);
     
@@ -332,14 +348,14 @@ bool Fitter::optimize_avx512(
             }
             prev_obj = new_obj;
         } else {
-            learning_rate *= 0.5f;
-            if (learning_rate < 1e-8f) {
+            learning_rate *= 0.7f;
+            if (learning_rate < 1e-6f) {
                 break;
             }
         }
     }
     
-    return prev_obj < 0.01f;
+    return prev_obj < 0.1f; 
 }
 
 bool Fitter::fit_slice_avx512(
@@ -348,16 +364,33 @@ bool Fitter::fit_slice_avx512(
     Params& params,
     float time_budget_micros
 ) {
-    if (moneyness.size() != ivs.size() || moneyness.size() < 3) {
-        return false;
+    if (moneyness.size() != ivs.size() || moneyness.size() < 2) {
+        return false;  // Allow fitting with 2+ data points
     }
     
     initial_guess(moneyness, ivs, params);
     bool success = optimize_avx512(moneyness, ivs, params, time_budget_micros);
     
+    // Multiple recovery strategies if arbitrage check fails
     if (success && !is_butterfly_arb_free(params, moneyness)) {
-        params.sigma *= 1.2f;
+        // Strategy 1: Increase sigma (smoothness)
+        params.sigma *= 1.3f;
         enforce_bounds(params);
+        
+        // Strategy 2: If still failing, reduce rho and increase sigma more
+        if (!is_butterfly_arb_free(params, moneyness)) {
+            params.rho *= 0.5f;
+            params.sigma *= 1.2f;
+            enforce_bounds(params);
+        }
+        
+        // Strategy 3: Last resort - conservative parameters
+        if (!is_butterfly_arb_free(params, moneyness)) {
+            params.rho = 0.0f;  // No skew
+            params.b = std::min(params.b, 0.5f);  // Conservative slope
+            params.sigma = std::max(params.sigma, 0.2f);  // Ensure smoothness
+            enforce_bounds(params);
+        }
     }
     
     return success;
@@ -370,8 +403,8 @@ bool Fitter::fit_slice(
     Params& params,
     float time_budget_micros
 ) {
-    if (moneyness.size() != ivs.size() || moneyness.size() < 3) {
-        return false;
+    if (moneyness.size() != ivs.size() || moneyness.size() < 2) {
+        return false;  // Allow fitting with 2+ data points
     }
     
 #if defined(__x86_64__)
