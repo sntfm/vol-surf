@@ -67,7 +67,7 @@ int main() {
         bool fit_success = false;
         
         if (moneyness.size() > 2 && ivs.size() > 2 && moneyness.size() == ivs.size()) {
-            fit_success = fitter.fit_slice(moneyness, ivs, params, 500.0f);
+            fit_success = fitter.fit_slice(moneyness, ivs, params, 1000.0f);
         }
         
         auto chain_svi_end = std::chrono::high_resolution_clock::now();

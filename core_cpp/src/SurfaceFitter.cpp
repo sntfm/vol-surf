@@ -156,7 +156,7 @@ bool Fitter::optimize_scalar(
         }
     }
     
-    return prev_obj < 0.1f;
+    return prev_obj < 0.01f;
 }
 
 float Fitter::evaluate_variance_second_derivative(float k, const Params& params) {
