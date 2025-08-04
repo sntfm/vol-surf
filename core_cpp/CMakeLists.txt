@@ -138,6 +138,7 @@ target_link_libraries(engine
         OptionDataReader
         SolverImpVol
         SurfaceFitter
+        OpenMP::OpenMP_CXX
 )
 target_include_directories(engine
     PRIVATE
