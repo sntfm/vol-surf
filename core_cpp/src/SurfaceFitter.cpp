@@ -355,7 +355,7 @@ bool Fitter::optimize_avx512(
         }
     }
     
-    return prev_obj < 0.1f; 
+    return prev_obj < 0.01f; 
 }
 
 bool Fitter::fit_slice_avx512(

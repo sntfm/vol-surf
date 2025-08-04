@@ -9,6 +9,19 @@
 #include <cmath>
 #include <omp.h>
 
+// Simple storage structures
+struct ChainResult {
+    size_t chain_idx;
+    std::string expiration;
+    float spot_price;
+    float tau_years;
+    std::vector<float> strikes;
+    std::vector<float> ivs;
+    bool fit_success;
+    SurfaceFitter::SVI::Params svi_params;
+    float fit_quality;  // MSE
+};
+
 int main() {
     // Initial shared memory mapping
     auto start = std::chrono::high_resolution_clock::now();
@@ -26,6 +39,9 @@ int main() {
         std::cerr << "Failed to read option chains from shared memory" << std::endl;
         return 1;
     }
+    
+    // Storage for results
+    std::vector<ChainResult> results(chains->chains()->size());
     
     // Process all chains
     auto total_start = std::chrono::high_resolution_clock::now();
@@ -73,6 +89,32 @@ int main() {
         auto chain_svi_end = std::chrono::high_resolution_clock::now();
         auto chain_svi_duration = std::chrono::duration_cast<std::chrono::microseconds>(chain_svi_end - chain_svi_start);
         
+        // Calculate fit quality (MSE)
+        float fit_quality = 0.0f;
+        if (fit_success && ivs.size() > 0) {
+            for (size_t i = 0; i < ivs.size(); ++i) {
+                float model_iv = std::sqrt(std::max(0.0001f, 
+                    params.a + params.b * (params.rho * moneyness[i] + 
+                    std::sqrt(moneyness[i] * moneyness[i] + params.sigma * params.sigma))));
+                float error = model_iv - ivs[i];
+                fit_quality += error * error;
+            }
+            fit_quality /= ivs.size();
+        }
+        
+        // Store results (thread-safe since each thread writes to different index)
+        results[chain_idx] = {
+            chain_idx,
+            chain->expiration() ? chain->expiration()->c_str() : "N/A",
+            spot_price,
+            tau_years,
+            std::vector<float>(calls_strike->begin(), calls_strike->end()),
+            ivs,
+            fit_success,
+            params,
+            fit_quality
+        };
+        
         total_options += calls_strike->size();
         if (fit_success) successful_fits++;
     }
@@ -80,7 +122,7 @@ int main() {
     auto total_end = std::chrono::high_resolution_clock::now();
     auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(total_end - total_start);
     
-    std::cout << "SUMMARY:\n";
+    std::cout << "\nSUMMARY:\n";
     std::cout << "  Initial shared memory mapping: " << init_duration.count() << " µs\n";
     std::cout << "  First read and verification: " << first_read_duration.count() << " µs\n";
     std::cout << "  Avg time per chain: " 
@@ -93,7 +135,50 @@ int main() {
     std::cout << "  Successful SVI fits: " << successful_fits << "/" << chains->chains()->size() 
               << " (" << std::fixed << std::setprecision(1) << (100.0 * successful_fits / chains->chains()->size()) << "%)\n";
     std::cout << "  Total processing time: " << total_duration.count() << " µs\n";
-    std::cout << "  OpenMP threads used: " << omp_get_max_threads() << "\n";
+    std::cout << "  OpenMP threads used: " << omp_get_max_threads() << "\n\n";
+
+    // Print detailed results
+    std::cout << "DETAILED RESULTS:\n";
+    std::cout << std::setw(5) << "Chain" 
+              << std::setw(15) << "Expiration" 
+              << std::setw(10) << "Spot" 
+              << std::setw(8) << "TTM" 
+              << std::setw(6) << "Opts" 
+              << std::setw(8) << "Success" 
+              << std::setw(10) << "Fit MSE" 
+              << std::setw(8) << "SVI_a" 
+              << std::setw(8) << "SVI_b" 
+              << std::setw(8) << "SVI_rho" 
+              << std::setw(8) << "SVI_m" 
+              << std::setw(8) << "SVI_sig" << "\n";
+    std::cout << std::string(100, '-') << "\n";
+    
+    for (const auto& result : results) {
+        if (result.strikes.empty()) continue;  // Skip empty chains
+        
+        std::cout << std::setw(5) << result.chain_idx
+                  << std::setw(15) << result.expiration
+                  << std::setw(10) << std::fixed << std::setprecision(2) << result.spot_price
+                  << std::setw(8) << std::fixed << std::setprecision(3) << result.tau_years
+                  << std::setw(6) << result.strikes.size()
+                  << std::setw(8) << (result.fit_success ? "YES" : "NO")
+                  << std::setw(10) << std::fixed << std::setprecision(4) << result.fit_quality;
+        
+        if (result.fit_success) {
+            std::cout << std::setw(8) << std::fixed << std::setprecision(3) << result.svi_params.a
+                      << std::setw(8) << std::fixed << std::setprecision(3) << result.svi_params.b
+                      << std::setw(8) << std::fixed << std::setprecision(3) << result.svi_params.rho
+                      << std::setw(8) << std::fixed << std::setprecision(3) << result.svi_params.m
+                      << std::setw(8) << std::fixed << std::setprecision(3) << result.svi_params.sigma;
+        } else {
+            std::cout << std::setw(8) << "-"
+                      << std::setw(8) << "-"
+                      << std::setw(8) << "-"
+                      << std::setw(8) << "-"
+                      << std::setw(8) << "-";
+        }
+        std::cout << "\n";
+    }
 
     return 0;
 } 
