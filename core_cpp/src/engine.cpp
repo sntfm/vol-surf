@@ -120,15 +120,15 @@ int main() {
         auto chain_iv_duration = std::chrono::duration_cast<std::chrono::microseconds>(chain_iv_end - chain_iv_start);
         
         // SVI fitting for this chain - optimized for maximum speed
-        SurfaceFitter::SVI::SVIFitter fitter;
-        SurfaceFitter::SVI::SVIParams params;
+        SurfaceFitter::SVI::Fitter fitter;
+        SurfaceFitter::SVI::Params params;
         
         auto chain_svi_start = std::chrono::high_resolution_clock::now();
         bool fit_success = false;
         
-        // Use direct vector interface for maximum performance
+        // Use clean SVI fitting interface
         if (moneyness.size() > 2 && ivs.size() > 2 && moneyness.size() == ivs.size()) {
-            fit_success = fitter.fit_slice_direct(moneyness, ivs, params, 50.0f);  // Even faster time budget
+            fit_success = fitter.fit_slice(moneyness, ivs, params, 500.0f);  // 500 microsecond budget
         }
         
         auto chain_svi_end = std::chrono::high_resolution_clock::now();
@@ -163,6 +163,85 @@ int main() {
     
     auto total_end = std::chrono::high_resolution_clock::now();
     auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(total_end - total_start);
+    
+    // Print detailed parameters for chain 0
+    if (chains->chains()->size() > 0) {
+        const auto* chain0 = chains->chains()->Get(0);
+        std::cout << std::string(100, '=') << "\n";
+        std::cout << "DETAILED PARAMETERS FOR CHAIN 0:\n";
+        std::cout << std::string(100, '=') << "\n";
+        
+        if (chain0->expiration()) {
+            std::cout << "Expiration: " << chain0->expiration()->c_str() << "\n";
+        }
+        std::cout << "Spot Price: " << std::fixed << std::setprecision(4) << chain0->spot_price() << "\n";
+        std::cout << "Time to expiry: " << chain0->tau_years() << " years\n";
+        std::cout << "Risk-free rate: " << chain0->rfr()->Get(0) << "\n";
+        
+        float spot_price = chain0->spot_price();
+        float tau_years = chain0->tau_years();
+        auto* rfr = chain0->rfr();
+        auto* calls_strike = chain0->calls_strike();
+        auto* calls_ask = chain0->calls_ask();
+        auto* calls_bid = chain0->calls_bid();
+        
+        // Compute forward price
+        float forward = spot_price * std::exp(rfr->Get(0) * tau_years);
+        std::cout << "Forward Price: " << std::setprecision(4) << forward << "\n\n";
+        
+        // Prepare moneyness and compute IVs
+        std::vector<float> moneyness(calls_strike->size());
+        for (size_t i = 0; i < calls_strike->size(); ++i) {
+            moneyness[i] = std::log(calls_strike->Get(i) / forward);
+        }
+        
+        std::vector<float> ivs;
+        SolverImpVol::compute_iv(spot_price, calls_strike, tau_years, rfr, calls_ask, 'C', ivs);
+        
+        // Print option data table
+        std::cout << "OPTION DATA:\n";
+        std::cout << std::setw(8) << "Strike" << std::setw(8) << "Bid" << std::setw(8) << "Ask" 
+                  << std::setw(12) << "Moneyness" << std::setw(8) << "IV" << "\n";
+        std::cout << std::string(50, '-') << "\n";
+        
+        for (size_t i = 0; i < calls_strike->size(); ++i) {
+            std::cout << std::fixed << std::setprecision(2)
+                      << std::setw(8) << calls_strike->Get(i)
+                      << std::setw(8) << calls_bid->Get(i)
+                      << std::setw(8) << calls_ask->Get(i)
+                      << std::setprecision(4)
+                      << std::setw(12) << moneyness[i];
+            
+            if (i < ivs.size()) {
+                std::cout << std::setw(8) << ivs[i];
+            } else {
+                std::cout << std::setw(8) << "N/A";
+            }
+            std::cout << "\n";
+        }
+        
+        // Fit SVI and print parameters
+        std::cout << "\nSVI FITTING:\n";
+        SurfaceFitter::SVI::Fitter fitter;
+        SurfaceFitter::SVI::Params params;
+        
+        if (moneyness.size() > 2 && ivs.size() > 2 && moneyness.size() == ivs.size()) {
+            bool fit_success = fitter.fit_slice(moneyness, ivs, params, 1000.0f);  // More time for detailed analysis
+            std::cout << "Fit successful: " << (fit_success ? "YES" : "NO") << "\n";
+            
+            if (fit_success) {
+                std::cout << "SVI Parameters:\n";
+                std::cout << "  a (intercept): " << std::setprecision(6) << params.a << "\n";
+                std::cout << "  b (angle): " << params.b << "\n";
+                std::cout << "  rho (correlation): " << params.rho << "\n";
+                std::cout << "  m (translation): " << params.m << "\n";
+                std::cout << "  sigma (vol of vol): " << params.sigma << "\n";
+            }
+        } else {
+            std::cout << "Insufficient data for SVI fitting\n";
+        }
+        std::cout << "\n";
+    }
     
     std::cout << std::string(100, '=') << "\n";
     std::cout << "SUMMARY:\n";

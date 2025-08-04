@@ -18,7 +18,7 @@ void compute_iv_avx512(
 );
 #endif
 
-// Scalar implementation of IV calculation using Brent's method
+// Scalar implementation of IV calculation using Jaeckel's approximation
 void compute_iv_scalar(
     const float& S,
     const flatbuffers::Vector<float>* K,
