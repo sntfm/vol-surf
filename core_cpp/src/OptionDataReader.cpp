@@ -25,16 +25,13 @@ void OptionDataReader::cleanup() {
 }
 
 bool OptionDataReader::map_shared_memory() {
-    cleanup();  // Clean up any existing mapping
+    cleanup();
 
-    // Try both with and without leading slash
-    std::string names[] = {shm_name_, "/" + shm_name_};
+    std::string names[] = {shm_name_, "/" + shm_name_}; // Trying both naming conventions
     
     for (const auto& name : names) {
-        // Open shared memory
         shm_fd_ = shm_open(name.c_str(), O_RDONLY, 0666);
         if (shm_fd_ != -1) {
-            // Successfully opened, get the size
             struct stat sb;
             if (fstat(shm_fd_, &sb) == -1) {
                 std::cerr << "Failed to get shared memory size: " << strerror(errno) << std::endl;
@@ -43,7 +40,6 @@ bool OptionDataReader::map_shared_memory() {
             }
             mapped_size_ = sb.st_size;
 
-            // Map the shared memory
             mapped_memory_ = mmap(nullptr, mapped_size_, PROT_READ, MAP_SHARED, shm_fd_, 0);
             if (mapped_memory_ != MAP_FAILED) {
                 return true;  // Successfully mapped

@@ -39,6 +39,33 @@ public:
         float time_budget_micros = 200.0f
     );
 
+    // Scalar implementation - maximum compatibility
+    bool fit_slice_direct_scalar(
+        const std::vector<float>& moneyness,
+        const std::vector<float>& ivs,
+        SVIParams& params,
+        float time_budget_micros = 200.0f
+    );
+
+    // AVX2 implementation - good balance of speed and compatibility
+    bool fit_slice_direct_avx2(
+        const std::vector<float>& moneyness,
+        const std::vector<float>& ivs,
+        SVIParams& params,
+        float time_budget_micros = 200.0f
+    );
+
+    // AVX-512 implementation - maximum performance
+    bool fit_slice_direct_avx512(
+        const std::vector<float>& moneyness,
+        const std::vector<float>& ivs,
+        SVIParams& params,
+        float time_budget_micros = 200.0f
+    );
+
+    // Auto-select best implementation based on CPU capabilities
+    static bool detect_best_implementation();
+
     // Evaluate SVI variance at given moneyness
     static float evaluate(float k, const SVIParams& params);
     
