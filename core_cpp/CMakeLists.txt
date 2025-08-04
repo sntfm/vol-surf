@@ -95,18 +95,18 @@ add_library(OptionDataReader
     ${CMAKE_CURRENT_BINARY_DIR}/OptionData_generated.h
 )
 
-# Add SolverIV library
-add_library(SolverIV
-    src/SolverIV.cpp
+# Add SolverImpVol library
+add_library(SolverImpVol
+    src/SolverImpVol.cpp
 )
 
-# Add SVIFitter library
-add_library(SVIFitter
-    src/SVIFitter.cpp
+# Add SurfaceFitter library
+add_library(SurfaceFitter
+    src/SurfaceFitter.cpp
 )
 
-# Add OpenMP to SolverIV
-target_link_libraries(SolverIV PRIVATE OpenMP::OpenMP_CXX)
+# Add OpenMP to SolverImpVol
+target_link_libraries(SolverImpVol PRIVATE OpenMP::OpenMP_CXX)
 
 # Add include directories for the OptionDataReader library
 target_include_directories(OptionDataReader
@@ -116,14 +116,14 @@ target_include_directories(OptionDataReader
         ${FLATBUFFERS_INCLUDE_DIR}
 )
 
-# Add include directories for the SolverIV library
-target_include_directories(SolverIV
+# Add include directories for the SolverImpVol library
+target_include_directories(SolverImpVol
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# Add include directories for the SVIFitter library
-target_include_directories(SVIFitter
+# Add include directories for the SurfaceFitter library
+target_include_directories(SurfaceFitter
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -131,15 +131,15 @@ target_include_directories(SVIFitter
 # Add dependencies
 add_dependencies(OptionDataReader generate_flatbuffers)
 
-# Add example executable
-add_executable(example_reader src/example_reader.cpp)
-target_link_libraries(example_reader 
+# Add executable
+add_executable(engine src/engine.cpp)
+target_link_libraries(engine 
     PRIVATE 
         OptionDataReader
-        SolverIV
-        SVIFitter
+        SolverImpVol
+        SurfaceFitter
 )
-target_include_directories(example_reader
+target_include_directories(engine
     PRIVATE
         ${FLATBUFFERS_INCLUDE_DIR}
 ) 

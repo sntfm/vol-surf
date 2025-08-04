@@ -129,7 +129,7 @@ if __name__ == "__main__":
     def main():
         ticker = "^SPX"
         connector = ConnectorYF(ticker)
-        print(connector.fetch()[0])
+        # print(connector.fetch()[0])
         connector.to_shared_memory()
 
         print("\nKeeping shared memory open. Press Ctrl+C to exit...")

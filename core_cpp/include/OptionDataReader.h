@@ -20,7 +20,7 @@ public:
 private:
     std::string shm_name_;
     int shm_fd_;
-    void* mapped_memory_
+    void* mapped_memory_;
     size_t mapped_size_;
     
     void cleanup();

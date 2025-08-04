@@ -1,14 +1,12 @@
 #pragma once
+
 #include <vector>
 #include "flatbuffers/flatbuffers.h"
 
-namespace iv {
+namespace SolverImpVol {
 
 #if defined(__x86_64__)
-/**
- * AVX-512 implementation of implied volatility calculation using Newton-Raphson method
- * with Brent's method as fallback.
- */
+// AVX-512 implementation of IV calculation using Newton-Raphson method
 void compute_iv_avx512(
     const float& S,
     const flatbuffers::Vector<float>* K,
@@ -20,9 +18,7 @@ void compute_iv_avx512(
 );
 #endif
 
-/**
- * Scalar implementation of implied volatility calculation using Brent's method.
- */
+// Scalar implementation of IV calculation using Brent's method
 void compute_iv_scalar(
     const float& S,
     const flatbuffers::Vector<float>* K,
@@ -33,10 +29,7 @@ void compute_iv_scalar(
     std::vector<float>& out_iv
 );
 
-/**
- * Main entry point for implied volatility calculation.
- * Will use AVX-512 implementation if available, otherwise falls back to scalar implementation.
- */
+// Main entry point for IV calculation, will use AVX-512 if available, otherwise falls back to scalar
 void compute_iv(
     const float& S,
     const flatbuffers::Vector<float>* K,

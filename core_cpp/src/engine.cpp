@@ -1,6 +1,6 @@
 #include "OptionDataReader.h"
-#include "SolverIV.h"
-#include "SVIFitter.h"
+#include "SolverImpVol.h"
+#include "SurfaceFitter.h"
 
 #include <iostream>
 #include <chrono>
@@ -115,13 +115,13 @@ int main() {
         // Compute IV for this chain
         auto chain_iv_start = std::chrono::high_resolution_clock::now();
         std::vector<float> ivs;
-        iv::compute_iv(spot_price, calls_strike, tau_years, rfr, calls_ask, 'C', ivs);
+        SolverImpVol::compute_iv(spot_price, calls_strike, tau_years, rfr, calls_ask, 'C', ivs);
         auto chain_iv_end = std::chrono::high_resolution_clock::now();
         auto chain_iv_duration = std::chrono::duration_cast<std::chrono::microseconds>(chain_iv_end - chain_iv_start);
         
         // SVI fitting for this chain - optimized for maximum speed
-        svi::SVIFitter fitter;
-        svi::SVIParams params;
+        SurfaceFitter::SVI::SVIFitter fitter;
+        SurfaceFitter::SVI::SVIParams params;
         
         auto chain_svi_start = std::chrono::high_resolution_clock::now();
         bool fit_success = false;

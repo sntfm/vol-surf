@@ -1,4 +1,4 @@
-#include "SVIFitter.h"
+#include "SurfaceFitter.h"
 
 #include <chrono>
 #include <cmath>
@@ -9,10 +9,13 @@
 #include <immintrin.h>
 #endif
 
+namespace SurfaceFitter {
+namespace SVI {
+
 #if defined(__x86_64__)
 void evaluate_batch_avx512(
     const float* k,
-    const svi::SVIParams& params,
+    const SurfaceFitter::SVI::SVIParams& params,
     float* out,
     int n
 ) {
@@ -38,20 +41,20 @@ void evaluate_batch_avx512(
 #endif
 
 
-float svi::SVIFitter::evaluate(float k, const svi::SVIParams& params) {
+float SurfaceFitter::SVI::SVIFitter::evaluate(float k, const SurfaceFitter::SVI::SVIParams& params) {
     float k_m = k - params.m;
     float inner = params.b * (params.rho * k_m + 
         std::sqrt(k_m * k_m + params.sigma * params.sigma));
     return params.a + inner;
 }
 
-float svi::SVIFitter::evaluate_first_derivative(float k, const svi::SVIParams& params) {
+float SurfaceFitter::SVI::SVIFitter::evaluate_first_derivative(float k, const SurfaceFitter::SVI::SVIParams& params) {
     float k_m = k - params.m;
     float sqrt_term = std::sqrt(k_m * k_m + params.sigma * params.sigma);
     return params.b * (params.rho + k_m / sqrt_term);
 }
 
-float svi::SVIFitter::evaluate_second_derivative(float k, const svi::SVIParams& params) {
+float SurfaceFitter::SVI::SVIFitter::evaluate_second_derivative(float k, const SurfaceFitter::SVI::SVIParams& params) {
     float k_m = k - params.m;
     float sigma_sq = params.sigma * params.sigma;
     float sqrt_term = std::sqrt(k_m * k_m + sigma_sq);
@@ -59,7 +62,7 @@ float svi::SVIFitter::evaluate_second_derivative(float k, const svi::SVIParams& 
     return params.b * sigma_sq / cube_term;
 }
 
-bool svi::SVIParams::is_butterfly_arbitrage_free(float k) const {
+bool SurfaceFitter::SVI::SVIParams::is_butterfly_arbitrage_free(float k) const {
     float k_m = k - m;
     float sigma_sq = sigma * sigma;
     float sqrt_term = std::sqrt(k_m * k_m + sigma_sq);
@@ -67,12 +70,12 @@ bool svi::SVIParams::is_butterfly_arbitrage_free(float k) const {
     return (b * sigma_sq / cube_term) >= 0;
 }
 
-bool svi::SVIParams::is_calendar_arbitrage_free(float k, float T1, float T2) const {
+bool SurfaceFitter::SVI::SVIParams::is_calendar_arbitrage_free(float k, float T1, float T2) const {
     return true;
 }
 
-void svi::SVIFitter::enforce_arbitrage_free(
-    svi::SVIParams& params,
+void SurfaceFitter::SVI::SVIFitter::enforce_arbitrage_free(
+    SurfaceFitter::SVI::SVIParams& params,
     const flatbuffers::Vector<float>* moneyness
 ) {
     float min_second_deriv = std::numeric_limits<float>::max();
@@ -89,10 +92,10 @@ void svi::SVIFitter::enforce_arbitrage_free(
     }
 }
 
-void svi::SVIFitter::initial_guess(
+void SurfaceFitter::SVI::SVIFitter::initial_guess(
     const flatbuffers::Vector<float>* moneyness,
     const flatbuffers::Vector<float>* ivs,
-    svi::SVIParams& params
+    SurfaceFitter::SVI::SVIParams& params
 ) {
     float mean_k = 0.0f, mean_iv = 0.0f;
     float var_k = 0.0f, var_iv = 0.0f;
@@ -127,8 +130,8 @@ void svi::SVIFitter::initial_guess(
     enforce_arbitrage_free(params, moneyness);
 }
 
-float svi::SVIFitter::objective(
-    const svi::SVIParams& params,
+float SurfaceFitter::SVI::SVIFitter::objective(
+    const SurfaceFitter::SVI::SVIParams& params,
     const flatbuffers::Vector<float>* moneyness,
     const flatbuffers::Vector<float>* ivs
 ) {
@@ -163,14 +166,14 @@ float svi::SVIFitter::objective(
     return sum_sq_err / n;
 }
 
-void svi::SVIFitter::gradient(
-    const svi::SVIParams& params,
+void SurfaceFitter::SVI::SVIFitter::gradient(
+    const SurfaceFitter::SVI::SVIParams& params,
     const flatbuffers::Vector<float>* moneyness,
     const flatbuffers::Vector<float>* ivs,
     float grad[5]
 ) {
     const float h = 1e-4f;
-    svi::SVIParams p = params;
+    SurfaceFitter::SVI::SVIParams p = params;
     float base = objective(params, moneyness, ivs);
     
     p = params; p.a += h;
@@ -189,15 +192,15 @@ void svi::SVIFitter::gradient(
     grad[4] = (objective(p, moneyness, ivs) - base) / h;
 }
 
-void svi::SVIFitter::enforce_bounds(svi::SVIParams& params) {
+void SurfaceFitter::SVI::SVIFitter::enforce_bounds(SurfaceFitter::SVI::SVIParams& params) {
     params.a = std::max(0.0001f, params.a);
     params.b = std::clamp(params.b, 0.0001f, 5.0f);
     params.rho = std::clamp(params.rho, -0.99f, 0.99f);
     params.sigma = std::max(0.0001f, params.sigma);
 }
 
-bool svi::SVIFitter::lm_step(
-    svi::SVIParams& params,
+bool SurfaceFitter::SVI::SVIFitter::lm_step(
+    SurfaceFitter::SVI::SVIParams& params,
     const flatbuffers::Vector<float>* moneyness,
     const flatbuffers::Vector<float>* ivs,
     float lambda
@@ -206,7 +209,7 @@ bool svi::SVIFitter::lm_step(
     gradient(params, moneyness, ivs, grad);
     
     float current_obj = objective(params, moneyness, ivs);
-    svi::SVIParams new_params = params;
+    SurfaceFitter::SVI::SVIParams new_params = params;
     
     new_params.a -= lambda * grad[0];
     new_params.b -= lambda * grad[1];
@@ -226,10 +229,10 @@ bool svi::SVIFitter::lm_step(
     return false;
 }
 
-bool svi::SVIFitter::fit_slice(
+bool SurfaceFitter::SVI::SVIFitter::fit_slice(
     const flatbuffers::Vector<float>* moneyness,
     const flatbuffers::Vector<float>* ivs,
-    svi::SVIParams& params,
+    SurfaceFitter::SVI::SVIParams& params,
     float time_budget_micros
 ) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -271,10 +274,10 @@ bool svi::SVIFitter::fit_slice(
 }
 
 // Direct vector interface - optimized for performance
-bool svi::SVIFitter::fit_slice_direct(
+bool SurfaceFitter::SVI::SVIFitter::fit_slice_direct(
     const std::vector<float>& moneyness,
     const std::vector<float>& ivs,
-    svi::SVIParams& params,
+    SurfaceFitter::SVI::SVIParams& params,
     float time_budget_micros
 ) {
     if (moneyness.size() != ivs.size() || moneyness.size() < 3) {
@@ -314,7 +317,7 @@ bool svi::SVIFitter::fit_slice_direct(
     params.b = std::clamp(std::sqrt(var_iv) / params.sigma, 0.0001f, 5.0f);
     
     // Fast objective function for vectors
-    auto fast_objective = [&](const svi::SVIParams& p) -> float {
+    auto fast_objective = [&](const SurfaceFitter::SVI::SVIParams& p) -> float {
         float sum_sq_err = 0.0f;
         for (int i = 0; i < n; ++i) {
             float k_m = moneyness[i] - p.m;
@@ -341,12 +344,12 @@ bool svi::SVIFitter::fit_slice_direct(
         
         // Simple gradient descent step
         const float h = 1e-4f;
-        svi::SVIParams new_params = params;
+        SurfaceFitter::SVI::SVIParams new_params = params;
         
         // Compute gradient
         float base = fast_objective(params);
         
-        svi::SVIParams p = params;
+        SurfaceFitter::SVI::SVIParams p = params;
         p.a += h; float grad_a = (fast_objective(p) - base) / h;
         p = params; p.b += h; float grad_b = (fast_objective(p) - base) / h;
         p = params; p.rho += h; float grad_rho = (fast_objective(p) - base) / h;
@@ -384,4 +387,6 @@ bool svi::SVIFitter::fit_slice_direct(
     }
     
     return prev_obj < 1e-3f;
+}
+}
 }

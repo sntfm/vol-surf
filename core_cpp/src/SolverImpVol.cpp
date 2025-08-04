@@ -1,4 +1,5 @@
-#include "SolverIV.h"
+#include "SolverImpVol.h"
+
 #include <omp.h>
 #include <cmath>
 #include <iostream>
@@ -7,22 +8,20 @@
 #include <immintrin.h>
 #endif
 
-namespace {
-
 #if defined(__x86_64__)
-constexpr int simd_width = 16;
+constexpr int simd_width = 16; // AVX-512
 #endif
-constexpr int max_iter = 10;
-constexpr float epsilon = 1e-5f;
 
+constexpr float PI = 3.14159265358979323846f;
+
+// Helper for normal CDF fast approximation
 inline float norm_cdf_scalar(float x) {
     return 0.5f * std::erfc(-x * static_cast<float>(M_SQRT1_2));
 }
-} // anonymous namespace
 
-namespace iv {
+namespace SolverImpVol {
 
-float black_scholes_price_scalar(char type, float S, float K, float T, float r, float sigma) {
+float bs_price_scalar(char type, float S, float K, float T, float r, float sigma) {
     float sqrtT = std::sqrt(T);
     float d1 = (std::log(S / K) + (r + 0.5f * sigma * sigma) * T) / (sigma * sqrtT);
     float d2 = d1 - sigma * sqrtT;
@@ -32,28 +31,76 @@ float black_scholes_price_scalar(char type, float S, float K, float T, float r, 
         return K * std::exp(-r * T) * norm_cdf_scalar(-d2) - S * norm_cdf_scalar(-d1);
 }
 
-float vega_scalar(float S, float K, float T, float r, float sigma) {
+float bs_vega_scalar(float S, float K, float T, float r, float sigma) {
     float sqrtT = std::sqrt(T);
     float d1 = (std::log(S / K) + (r + 0.5f * sigma * sigma) * T) / (sigma * sqrtT);
     return S * sqrtT * (1.0f / std::sqrt(2.0f * M_PI)) * std::exp(-0.5f * d1 * d1);
 }
 
-float implied_vol_brent(char type, float S, float K, float T, float r, float market_price) {
-    float a = 1e-4f, b = 5.0f, fa, fb, fm;
-    for (int i = 0; i < 50; ++i) {
-        fa = black_scholes_price_scalar(type, S, K, T, r, a) - market_price;
-        fb = black_scholes_price_scalar(type, S, K, T, r, b) - market_price;
-        if (fa * fb >= 0) return 0.0f;
-        float m = 0.5f * (a + b);
-        fm = black_scholes_price_scalar(type, S, K, T, r, m) - market_price;
-        if (std::abs(fm) < epsilon) return m;
-        if (fa * fm < 0) b = m; else a = m;
+// Jaeckel's approximation
+// Initial guess function
+float initial_guess_jaeckal(char type, float S, float K, float T, float r, float market_price) {
+    float F = S * std::exp(r * T);
+    float log_moneyness = std::log(F / K);
+    float atm_guess = std::sqrt(2.0f * std::abs(log_moneyness) / T);
+    if (std::abs(log_moneyness) < 0.05f) {
+        return atm_guess;
+    } else {
+        float adjustment = 1.0f + 0.5f * log_moneyness;  // increase vol for ITM, decrease for OTM
+        if (adjustment < 0.5f) adjustment = 0.5f;
+        if (adjustment > 2.0f) adjustment = 2.0f;
+        float guess = atm_guess * adjustment;
+        if (guess < 0.01f) guess = 0.01f;
+        return guess;
     }
-    return 0.0f;
+}
+
+// Householder iteration: single third-order step
+float householder_improve(char type, float S, float K, float T, float r,
+                          float price, float sigma0) {
+    float pr = bs_price_scalar(type, S, K, T, r, sigma0);
+    float vega = bs_vega_scalar(S, K, T, r, sigma0);
+    float error = pr - price;
+    float g = error / vega;
+    float g2 = g * g, g3 = g2 * g;
+    // coefficients for third-order correction term
+    float d1 = (std::log(S/K) + (r + 0.5f*sigma0*sigma0)*T) / (sigma0*std::sqrt(T));
+    float phi = std::exp(-0.5f * d1*d1) / std::sqrt(2.0f * PI);
+    float v = vega;
+    float v2 = v * v;
+    // simplified Householder: sigma1 = sigma0 - g*(1 + 0.5*g*(v' / v))
+    // but full formula uses higher derivatives — placeholder for clarity
+    return sigma0 - g * (1.0f + 0.5f * g * ( (d1 * phi * std::sqrt(T)) / v ));
+}
+
+float implied_vol_jaeckel(char type, float S, float K, float T, float r, float market_price) {
+    if (market_price <= 0 || T <= 0) return 0.0f;
+    float sigma = initial_guess_jaeckal(type, S, K, T, r, market_price);
+    // Two Householder correction steps
+    sigma = householder_improve(type, S, K, T, r, market_price, sigma);
+    sigma = householder_improve(type, S, K, T, r, market_price, sigma);
+    return sigma > 0.0f ? sigma : 0.0f;
+}
+
+void compute_iv_scalar(
+    const float& S,
+    const flatbuffers::Vector<float>* K,
+    const float& T,
+    const flatbuffers::Vector<float>* r,
+    const flatbuffers::Vector<float>* price,
+    char type,
+    std::vector<float>& out_iv
+) {
+    int N = K->size();
+    out_iv.resize(N);
+
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < N; ++i) {
+        out_iv[i] = implied_vol_jaeckel(type, S, K->Get(i), T, r->Get(i), price->Get(i));
+    }
 }
 
 #if defined(__x86_64__)
-// AVX-512 implementation Newton-Raphson method for IV calculation
 void compute_iv_avx512(
     const float& S,
     const flatbuffers::Vector<float>* K,
@@ -75,7 +122,7 @@ void compute_iv_avx512(
         __m512 p     = _mm512_loadu_ps(&price->Get(i));
         __m512 sigma = _mm512_set1_ps(0.2f);
 
-        __mmask16 fallback_mask = 0;
+        __mmask16 fallback_mask = 0; // Bitmask for fallback to scalar
 
         for (int iter = 0; iter < max_iter; ++iter) {
             __m512 sqrtT = _mm512_sqrt_ps(t);
@@ -94,8 +141,8 @@ void compute_iv_avx512(
             __m512 put_val  = _mm512_sub_ps(_mm512_mul_ps(k, _mm512_mul_ps(e_rt, _mm512_sub_ps(_mm512_set1_ps(1.0f), cdf_d2))),
                                           _mm512_mul_ps(s, _mm512_sub_ps(_mm512_set1_ps(1.0f), cdf_d1)));
 
-            __m512 bs_price = (type == 'C') ? call_val : put_val;
-            __m512 diff = _mm512_sub_ps(bs_price, p);
+            __m512 bs_price_scalar = (type == 'C') ? call_val : put_val;
+            __m512 diff = _mm512_sub_ps bs_price_scalar, p);
 
             __m512 nd1 = _mm512_exp_ps(_mm512_mul_ps(_mm512_set1_ps(-0.5f), _mm512_mul_ps(d1, d1)));
             __m512 vega = _mm512_mul_ps(s, _mm512_mul_ps(sqrtT, _mm512_div_ps(nd1, _mm512_set1_ps(std::sqrt(2.0f * M_PI)))));
@@ -120,7 +167,7 @@ void compute_iv_avx512(
 
         for (int j = 0; j < simd_width && i + j < N; ++j) {
             if (fallback_mask & (1 << j)) {
-                out_iv[i + j] = implied_vol_brent(type, S, K->Get(i + j), T, r->Get(i + j), price->Get(i + j));
+                out_iv[i + j] = implied_vol_jaeckel(type, S, K->Get(i + j), T, r->Get(i + j), price->Get(i + j));
             } else {
                 out_iv[i + j] = tmp[j];
             }
@@ -129,26 +176,6 @@ void compute_iv_avx512(
 }
 #endif
 
-// Fallback scalar implementation
-void compute_iv_scalar(
-    const float& S,
-    const flatbuffers::Vector<float>* K,
-    const float& T,
-    const flatbuffers::Vector<float>* r,
-    const flatbuffers::Vector<float>* price,
-    char type,
-    std::vector<float>& out_iv
-) {
-    int N = K->size();
-    out_iv.resize(N);
-
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < N; ++i) {
-        out_iv[i] = implied_vol_brent(type, S, K->Get(i), T, r->Get(i), price->Get(i));
-    }
-}
-
-// Main entry point that chooses the appropriate implementation
 void compute_iv(
     const float& S,
     const flatbuffers::Vector<float>* K,
@@ -169,6 +196,4 @@ void compute_iv(
 #endif
 }
 
-} // namespace iv
-
-
+} // namespace SolverImpVol

@@ -3,7 +3,8 @@
 #include <vector>
 #include "flatbuffers/flatbuffers.h"
 
-namespace svi {
+namespace SurfaceFitter {
+namespace SVI {
 
 struct SVIParams {
     float a;     // overall level
@@ -116,4 +117,5 @@ private:
     );
 };
 
-} // namespace svi 
+} // namespace SVI
+} // namespace SurfaceFitter
