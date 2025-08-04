@@ -1,4 +1,6 @@
 #include "OptionDataReader.h"
+#include "Helpers.h"
+
 #include <iostream>
 
 OptionDataReader::OptionDataReader(const std::string& shm_name)
@@ -60,6 +62,7 @@ bool OptionDataReader::refresh() {
 }
 
 const OptionData::OptionChainList* OptionDataReader::getOptionChains() {
+    PROFILE_FUNCTION();
     if (!mapped_memory_) {
         return nullptr;
     }
