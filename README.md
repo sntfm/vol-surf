@@ -84,7 +84,8 @@ The project uses the SVI (Stochastic Volatility Inspired) parameterization for f
 ### C++
 - OpenMP
 - FlatBuffers
-- CMake (build system)
+- CMake
+- gcc
 
 ## Benchmarking
 
