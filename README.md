@@ -85,4 +85,3 @@ The project uses the SVI (Stochastic Volatility Inspired) parameterization for f
 - OpenMP
 - FlatBuffers
 - CMake (build system)
-- Intel SVML (for vectorized math operations)
