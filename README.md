@@ -33,6 +33,8 @@ vol-surf/
 ```bash
 cd conn_py
 ./install_py.sh
+
+python3 connector.py
 ```
 
 ### C++ Components
@@ -41,6 +43,8 @@ cd core_cpp
 ./install_libs.sh
 mkdir build && cd build
 cmake -build .
+
+./engine
 ```
 
 ## Technical Details
