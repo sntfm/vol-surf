@@ -89,6 +89,7 @@ The project uses the SVI (Stochastic Volatility Inspired) parameterization for f
 ## Benchmarking
 
 ### Scalar:
+```
   Initial shared memory mapping: 17 µs
   First read and verification: 25 µs
   Avg time per chain: 11.9 µs
@@ -98,5 +99,6 @@ The project uses the SVI (Stochastic Volatility Inspired) parameterization for f
   Successful SVI fits: 34/54 (63.0%)
   Total processing time: 641 µs
   OpenMP threads used: 14
+```
 
 ### SIMD-optimized:
