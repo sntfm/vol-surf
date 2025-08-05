@@ -28,30 +28,42 @@ include(CheckCXXSourceCompiles)
 check_cxx_source_compiles("
     #include <immintrin.h>
     int main() {
+        // Check AVX-512F (Foundation)
         __m512 a = _mm512_set1_ps(1.0f);
+        __mmask16 mask = _mm512_cmp_ps_mask(a, a, _CMP_LT_OS);
+        
+        // Check FMA
+        __m512 fma = _mm512_fmadd_ps(a, a, a);
+        
+        // Check masked operations
+        __m512 masked = _mm512_mask_sub_ps(a, mask, a, a);
+        
+        // Check AVX-512DQ (Double/Quad)
+        __m512d d = _mm512_set1_pd(1.0);
+        
         return 0;
     }
 " HAS_AVX512)
 
 if(HAS_AVX512)
-    message(STATUS "AVX-512 support detected")
+    message(STATUS "AVX-512 support detected with all required features")
     add_definitions(-DHAS_AVX512)
     if(MSVC)
         add_compile_options(/arch:AVX512)
     else()
-        add_compile_options(-mavx512f -mavx512dq)
+        add_compile_options(-mavx512f -mavx512dq -mavx512bw -mavx512vl -mfma)
     endif()
 else()
-    message(STATUS "No AVX-512 support, using fallback implementation")
+    message(STATUS "Full AVX-512 support not available, using fallback implementation")
 endif()
 
 # Set compiler flags for optimization
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -ftree-vectorize")
     
     if(HAS_AVX512)
         message(STATUS "AVX-512 support detected")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx512f -mavx512dq -mavx512bw -mavx512vl")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx512f -mavx512dq -mavx512bw -mavx512vl -mfma")
         add_definitions(-DHAS_AVX512)
     else()
         message(STATUS "No AVX-512 support, using fallback implementation")
@@ -61,22 +73,57 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     endif()
 endif()
 
-# Set include directories explicitly
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    /opt/homebrew/include
-    /opt/homebrew/Cellar/flatbuffers/25.2.10/include
+# Find FlatBuffers using standard CMake paths
+find_package(Flatbuffers QUIET)
+if(NOT Flatbuffers_FOUND)
+    # Try pkg-config as fallback
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(Flatbuffers QUIET flatbuffers)
+    endif()
+    
+    # If still not found, look in some common paths
+    if(NOT Flatbuffers_FOUND)
+        find_path(FLATBUFFERS_INCLUDE_DIR NAMES flatbuffers/flatbuffers.h
+            PATHS
+                # Linux paths
+                /usr/include
+                /usr/local/include
+                # macOS Homebrew paths
+                /opt/homebrew/include
+                /usr/local/opt/flatbuffers/include
+                # Custom paths
+                ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+            PATH_SUFFIXES flatbuffers
+        )
+        if(FLATBUFFERS_INCLUDE_DIR)
+            set(Flatbuffers_FOUND TRUE)
+        endif()
+    endif()
+endif()
+
+if(NOT Flatbuffers_FOUND)
+    message(FATAL_ERROR "FlatBuffers not found. Please install FlatBuffers:\n"
+                       "  Linux: sudo apt install flatbuffers-compiler libflatbuffers-dev\n"
+                       "  macOS: brew install flatbuffers\n"
+                       "  Or download from https://github.com/google/flatbuffers")
+endif()
+
+# Find flatc compiler
+find_program(FLATC flatc
+    PATHS
+        # Linux paths
+        /usr/bin
+        /usr/local/bin
+        # macOS Homebrew paths
+        /opt/homebrew/bin
+        /usr/local/opt/flatbuffers/bin
+        # Custom paths
+        ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/bin
+    REQUIRED
 )
 
-# Find FlatBuffers
-find_path(FLATBUFFERS_INCLUDE_DIR NAMES flatbuffers/flatbuffers.h
-    PATHS 
-        /opt/homebrew/include
-        /opt/homebrew/Cellar/flatbuffers/25.2.10/include
-    REQUIRED)
-
 # Generate FlatBuffers code
-find_program(FLATC flatc REQUIRED)
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/OptionData_generated.h
     COMMAND ${FLATC} --cpp -o ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../schemas/OptionData.fbs
@@ -95,19 +142,6 @@ add_library(OptionDataReader
     ${CMAKE_CURRENT_BINARY_DIR}/OptionData_generated.h
 )
 
-# Add SolverImpVol library
-add_library(SolverImpVol
-    src/SolverImpVol.cpp
-)
-
-# Add SurfaceFitter library
-add_library(SurfaceFitter
-    src/SurfaceFitter.cpp
-)
-
-# Add OpenMP to SolverImpVol
-target_link_libraries(SolverImpVol PRIVATE OpenMP::OpenMP_CXX)
-
 # Add include directories for the OptionDataReader library
 target_include_directories(OptionDataReader
     PUBLIC
@@ -116,10 +150,28 @@ target_include_directories(OptionDataReader
         ${FLATBUFFERS_INCLUDE_DIR}
 )
 
+# Add SolverImpVol library
+add_library(SolverImpVol
+    src/SolverImpVol.cpp
+)
+
 # Add include directories for the SolverImpVol library
 target_include_directories(SolverImpVol
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${FLATBUFFERS_INCLUDE_DIR}  # Add FlatBuffers headers
+)
+
+# Add OpenMP and math library to SolverImpVol
+target_link_libraries(SolverImpVol 
+    PRIVATE 
+        OpenMP::OpenMP_CXX
+        m
+)
+
+# Add SurfaceFitter library
+add_library(SurfaceFitter
+    src/SurfaceFitter.cpp
 )
 
 # Add include directories for the SurfaceFitter library
@@ -133,14 +185,20 @@ add_dependencies(OptionDataReader generate_flatbuffers)
 
 # Add executable
 add_executable(engine src/engine.cpp)
+
+# Add include directories for the engine executable
+target_include_directories(engine
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${FLATBUFFERS_INCLUDE_DIR}
+)
+
+# Link libraries
 target_link_libraries(engine 
     PRIVATE 
         OptionDataReader
         SolverImpVol
         SurfaceFitter
         OpenMP::OpenMP_CXX
-)
-target_include_directories(engine
-    PRIVATE
-        ${FLATBUFFERS_INCLUDE_DIR}
+        m
 ) 

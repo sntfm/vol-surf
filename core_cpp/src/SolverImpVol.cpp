@@ -6,6 +6,11 @@
 
 #if defined(__x86_64__)
 #include <immintrin.h>
+// Add libmvec declarations
+extern "C" {
+    __m512 _ZGVeN16v_log(__m512);
+    __m512 _ZGVeN16v_exp(__m512);
+}
 #endif
 
 #if defined(__x86_64__)
@@ -69,7 +74,6 @@ float householder_improve(char type, float S, float K, float T, float r,
     float v = vega;
     float v2 = v * v;
     // simplified Householder: sigma1 = sigma0 - g*(1 + 0.5*g*(v' / v))
-    // but full formula uses higher derivatives — placeholder for clarity
     return sigma0 - g * (1.0f + 0.5f * g * ( (d1 * phi * std::sqrt(T)) / v ));
 }
 
@@ -101,6 +105,43 @@ void compute_iv_scalar(
 }
 
 #if defined(__x86_64__)
+// Abramowitz & Stegun 7.1.26, approximation for erfc(x) for positive x 
+__m512 erfc_approx_avx512(__m512 x) {
+    const __m512 one = _mm512_set1_ps(1.0f);
+    const __m512 p = _mm512_set1_ps(0.3275911f);
+
+    // Coefficients
+    const __m512 a1 = _mm512_set1_ps(0.254829592f);
+    const __m512 a2 = _mm512_set1_ps(-0.284496736f);
+    const __m512 a3 = _mm512_set1_ps(1.421413741f);
+    const __m512 a4 = _mm512_set1_ps(-1.453152027f);
+    const __m512 a5 = _mm512_set1_ps(1.061405429f);
+
+    __m512 t = _mm512_div_ps(one, _mm512_add_ps(one, _mm512_mul_ps(p, x)));
+
+    // Polynomial evaluation Horner's method
+    __m512 poly = a5;
+    poly = _mm512_fmadd_ps(poly, t, a4);
+    poly = _mm512_fmadd_ps(poly, t, a3);
+    poly = _mm512_fmadd_ps(poly, t, a2);
+    poly = _mm512_fmadd_ps(poly, t, a1);
+
+    __m512 exp_term = _mm512_exp_ps(_mm512_mul_ps(x, _mm512_sub_ps(_mm512_setzero_ps(), x)));
+
+    __m512 erf_approx = _mm512_mul_ps(poly, t);
+    erf_approx = _mm512_mul_ps(erf_approx, exp_term);
+
+    return _mm512_sub_ps(one, erf_approx);
+}
+
+// Full erfc(x) for positive and negative x
+__m512 erfc_full_avx512(__m512 x) {
+    __mmask16 sign_mask = _mm512_cmp_ps_mask(x, _mm512_setzero_ps(), _CMP_LT_OS);
+    __m512 abs_x = _mm512_abs_ps(x);
+    __m512 erfc_pos = erfc_approx_avx512(abs_x);
+    return _mm512_mask_sub_ps(erfc_pos, sign_mask, _mm512_set1_ps(2.0f), erfc_pos);
+}
+
 void compute_iv_avx512(
     const float& S,
     const flatbuffers::Vector<float>* K,
@@ -127,24 +168,24 @@ void compute_iv_avx512(
         for (int iter = 0; iter < max_iter; ++iter) {
             __m512 sqrtT = _mm512_sqrt_ps(t);
             __m512 d1 = _mm512_div_ps(
-                _mm512_add_ps(_mm512_log_ps(_mm512_div_ps(s, k)), _mm512_mul_ps(_mm512_add_ps(rr, _mm512_mul_ps(_mm512_set1_ps(0.5f), _mm512_mul_ps(sigma, sigma))), t)),
+                _mm512_add_ps(_ZGVeN16v_log(_mm512_div_ps(s, k)), _mm512_mul_ps(_mm512_add_ps(rr, _mm512_mul_ps(_mm512_set1_ps(0.5f), _mm512_mul_ps(sigma, sigma))), t)),
                 _mm512_mul_ps(sigma, sqrtT)
             );
             __m512 d2 = _mm512_sub_ps(d1, _mm512_mul_ps(sigma, sqrtT));
 
-            __m512 cdf_d1 = _mm512_mul_ps(_mm512_set1_ps(0.5f), _mm512_erfc_ps(_mm512_mul_ps(d1, _mm512_set1_ps(-M_SQRT1_2f))));
-            __m512 cdf_d2 = _mm512_mul_ps(_mm512_set1_ps(0.5f), _mm512_erfc_ps(_mm512_mul_ps(d2, _mm512_set1_ps(-M_SQRT1_2f))));
+            __m512 cdf_d1 = _mm512_mul_ps(_mm512_set1_ps(0.5f), erfc_full_avx512(_mm512_mul_ps(d1, _mm512_set1_ps(-M_SQRT1_2))));
+            __m512 cdf_d2 = _mm512_mul_ps(_mm512_set1_ps(0.5f), erfc_full_avx512(_mm512_mul_ps(d2, _mm512_set1_ps(-M_SQRT1_2))));
 
-            __m512 e_rt = _mm512_exp_ps(_mm512_mul_ps(_mm512_set1_ps(-1.0f), _mm512_mul_ps(rr, t)));
+            __m512 e_rt = _ZGVeN16v_exp(_mm512_mul_ps(_mm512_set1_ps(-1.0f), _mm512_mul_ps(rr, t)));
 
             __m512 call_val = _mm512_sub_ps(_mm512_mul_ps(s, cdf_d1), _mm512_mul_ps(k, _mm512_mul_ps(e_rt, cdf_d2)));
             __m512 put_val  = _mm512_sub_ps(_mm512_mul_ps(k, _mm512_mul_ps(e_rt, _mm512_sub_ps(_mm512_set1_ps(1.0f), cdf_d2))),
                                           _mm512_mul_ps(s, _mm512_sub_ps(_mm512_set1_ps(1.0f), cdf_d1)));
 
             __m512 bs_price_scalar = (type == 'C') ? call_val : put_val;
-            __m512 diff = _mm512_sub_ps bs_price_scalar, p);
+            __m512 diff = _mm512_sub_ps(bs_price_scalar, p);
 
-            __m512 nd1 = _mm512_exp_ps(_mm512_mul_ps(_mm512_set1_ps(-0.5f), _mm512_mul_ps(d1, d1)));
+            __m512 nd1 = _ZGVeN16v_exp(_mm512_mul_ps(_mm512_set1_ps(-0.5f), _mm512_mul_ps(d1, d1)));
             __m512 vega = _mm512_mul_ps(s, _mm512_mul_ps(sqrtT, _mm512_div_ps(nd1, _mm512_set1_ps(std::sqrt(2.0f * M_PI)))));
 
             __mmask16 small_vega = _mm512_cmp_ps_mask(vega, _mm512_set1_ps(1e-8f), _CMP_LT_OQ);
