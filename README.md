@@ -8,7 +8,7 @@ A high-performance library for fetching option chain data, calculating implied v
 - **High-Performance Processing**: 
   - C++ computational engine with SIMD optimizations
   - OpenMP parallel processing support
-  - Efficient implied volatility solver using Jaeckel's method
+  - Efficient implied volatility solver: SIMD optimized Newton-Raphson method or scalar Jaeckel's approximation
   - SVI (Stochastic Volatility Inspired) surface fitting
 - **Cross-Language Integration**: FlatBuffers-based efficient data exchange between Python and C++
 - **Real-time Processing**: Shared memory mapping for fast data access
@@ -60,8 +60,8 @@ The project uses the SVI (Stochastic Volatility Inspired) parameterization for f
 
 ### Performance Optimizations
 
-- SIMD vectorization for x86_64 architectures using AVX-512 for computing implied volatilities with Newton-Raphson method
-- Automatic scalar fallback using Jaeckel's approximation for architectures not supporting AVX-512
+- SIMD vectorization for x86_64 architectures using AVX-512
+- Automatic scalar fallback for architectures not supporting AVX-512
 - OpenMP parallel processing for multi-threaded computation
 - Efficient memory mapping for data exchange
 
