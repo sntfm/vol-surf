@@ -39,8 +39,8 @@ cd conn_py
 ```bash
 cd core_cpp
 ./install_libs.sh
-cmake .
-make
+mkdir build && cd build
+cmake -build .
 ```
 
 ## Technical Details
