@@ -19,12 +19,12 @@ A high-performance library for fetching option chain data, calculating implied v
 vol-surf/
 ├── conn_py/               # Python connector components
 │   ├── connector.py       # Yahoo Finance data fetcher
-│   ├── flatbuf.py        # FlatBuffers serialization
-│   └── OptionData/       # Python option data structures
-├── core_cpp/             # C++ computational engine
-│   ├── include/         # Header files
-│   └── src/            # Implementation files
-└── schemas/            # FlatBuffers schema definitions
+│   ├── flatbuf.py         # FlatBuffers serialization
+│   └── OptionData/        # Python option data structures
+├── core_cpp/              # C++ computational engine
+│   ├── include/           # Header files
+│   └── src/               # Implementation files
+└── schemas/               # FlatBuffers schema definitions
 ```
 
 ## Installation
