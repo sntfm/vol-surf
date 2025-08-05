@@ -1,0 +1,4 @@
+yfinance>=0.2.36
+pytz>=2024.1
+flatbuffers>=23.5.26
+numpy>=1.26.0 

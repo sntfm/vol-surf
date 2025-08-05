@@ -15,6 +15,44 @@ endif()
 
 project(OptionDataReader)
 
+# Option to automatically install dependencies
+option(AUTO_INSTALL_DEPENDENCIES "Automatically install missing dependencies" OFF)
+
+# Function to check and install dependencies
+function(check_and_install_dependencies)
+    set(DEPENDENCIES_MISSING FALSE)
+    
+    # Check for required programs
+    find_program(GCC_FOUND gcc)
+    find_program(GPP_FOUND g++)
+    find_package(OpenMP QUIET)
+    find_package(Flatbuffers QUIET)
+    
+    if(NOT GCC_FOUND OR NOT GPP_FOUND OR NOT OpenMP_FOUND OR NOT Flatbuffers_FOUND)
+        set(DEPENDENCIES_MISSING TRUE)
+    endif()
+    
+    if(DEPENDENCIES_MISSING)
+        message(STATUS "Some dependencies are missing.")
+        if(AUTO_INSTALL_DEPENDENCIES)
+            message(STATUS "Attempting to install missing dependencies...")
+            execute_process(
+                COMMAND ${CMAKE_SOURCE_DIR}/install_libs.sh
+                RESULT_VARIABLE INSTALL_RESULT
+            )
+            if(NOT INSTALL_RESULT EQUAL 0)
+                message(FATAL_ERROR "Failed to install dependencies. Please install them manually.")
+            endif()
+        else()
+            message(STATUS "Run CMake with -DAUTO_INSTALL_DEPENDENCIES=ON to automatically install dependencies")
+            message(STATUS "Or run /install_libs.sh manually")
+        endif()
+    endif()
+endfunction()
+
+# Check dependencies at configure time
+check_and_install_dependencies()
+
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
